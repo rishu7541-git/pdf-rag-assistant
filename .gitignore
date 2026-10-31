@@ -1,0 +1,26 @@
+# Virtual environment
+.venv/
+
+# API keys
+.env
+.streamlit/secrets.toml
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# ChromaDB databases
+chroma_db/
+chroma_db_uploads/
+
+# Study and unused folders
+document_loaders/
+retrievers/
+src/
+vectores_stores/
+
+# VS Code settings
+.vscode/
+
+# OS files
+.DS_Store
