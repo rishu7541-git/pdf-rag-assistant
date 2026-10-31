@@ -248,6 +248,9 @@ else:
 
                     # Retrieve relevant chunks
                     docs = retriever.invoke(query)
+                    st.success("RETRIEVER EXECUTED SUCCESSFULLY!")
+
+                    st.write("Number of retrieved chunks:", len(docs))
 
                     # Combine retrieved text
                     context = "\n\n".join(
