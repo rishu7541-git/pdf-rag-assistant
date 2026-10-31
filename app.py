@@ -19,7 +19,9 @@ from langchain_core.prompts import ChatPromptTemplate
 load_dotenv()
 
 
-# ---------------- PAGE CONFIG ----------------
+# ============================================================
+# PAGE CONFIGURATION
+# ============================================================
 
 st.set_page_config(
     page_title="PDF RAG Assistant",
@@ -31,7 +33,9 @@ st.title("📚 PDF RAG ASSISTANT")
 st.caption("Upload a PDF and ask questions about its content.")
 
 
-# ---------------- SESSION STATE ----------------
+# ============================================================
+# SESSION STATE
+# ============================================================
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -49,7 +53,9 @@ if "processed_hash" not in st.session_state:
     st.session_state.processed_hash = None
 
 
-# ---------------- MODELS ----------------
+# ============================================================
+# MODELS
+# ============================================================
 
 @st.cache_resource
 def get_embedding_model():
@@ -88,7 +94,9 @@ embedding_model = get_embedding_model()
 llm = get_llm()
 
 
-# ---------------- PROMPT ----------------
+# ============================================================
+# PROMPT TEMPLATE
+# ============================================================
 
 prompt = ChatPromptTemplate.from_messages([
     (
@@ -118,51 +126,30 @@ prompt = ChatPromptTemplate.from_messages([
 ])
 
 
-# ---------------- DATABASE CREATION ----------------
+# ============================================================
+# DATABASE CREATION
+# ============================================================
 
 def create_database(uploaded_file):
 
     pdf_bytes = uploaded_file.getvalue()
 
-    # Unique database directory for each PDF
+    # Generate a unique ID for the uploaded PDF
     pdf_hash = hashlib.sha256(pdf_bytes).hexdigest()
 
-    db_path = Path("chroma_db_uploads") / pdf_hash
+    # Use a writable temporary directory
+    db_path = (
+        Path(tempfile.gettempdir())
+        / "chroma_db_uploads"
+        / pdf_hash
+    )
 
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path.parent.mkdir(
+        parents=True,
+        exist_ok=True
+    )
 
-    # Check whether an existing database contains documents
-    if db_path.exists():
-
-        try:
-            vectorstore = Chroma(
-                persist_directory=str(db_path),
-                embedding_function=embedding_model
-            )
-
-            stored_count = vectorstore._collection.count()
-
-            st.write(
-                "Existing Chroma documents:",
-                stored_count
-            )
-
-            if stored_count > 0:
-                return vectorstore
-
-            # Remove an existing but empty database
-            del vectorstore
-            shutil.rmtree(db_path)
-
-        except Exception as e:
-
-            st.warning(
-                f"Existing database could not be reused: {e}"
-            )
-
-            shutil.rmtree(db_path, ignore_errors=True)
-
-    # Save uploaded PDF temporarily
+    # Save PDF temporarily for PyPDFLoader
     with tempfile.NamedTemporaryFile(
         suffix=".pdf",
         delete=False
@@ -173,7 +160,10 @@ def create_database(uploaded_file):
 
     try:
 
-        # Extract PDF text
+        # ----------------------------------------------------
+        # 1. LOAD PDF
+        # ----------------------------------------------------
+
         loader = PyPDFLoader(temp_path)
         docs = loader.load()
 
@@ -184,20 +174,26 @@ def create_database(uploaded_file):
                 "No readable pages found in this PDF."
             )
 
-        extracted_text = sum(
+        extracted_characters = sum(
             len(doc.page_content.strip())
             for doc in docs
         )
 
-        st.write("Extracted characters:", extracted_text)
+        st.write(
+            "Extracted characters:",
+            extracted_characters
+        )
 
-        if extracted_text == 0:
+        if extracted_characters == 0:
             raise ValueError(
-                "No readable text found. "
-                "This PDF may contain scanned images."
+                "No readable text found in the PDF. "
+                "It may contain scanned images."
             )
 
-        # Split documents into chunks
+        # ----------------------------------------------------
+        # 2. SPLIT INTO CHUNKS
+        # ----------------------------------------------------
+
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=200
@@ -212,14 +208,26 @@ def create_database(uploaded_file):
                 "No chunks were created from the PDF."
             )
 
-        # Create ChromaDB vector store
+        # ----------------------------------------------------
+        # 3. CREATE FRESH CHROMA DATABASE
+        # ----------------------------------------------------
+
+        # Remove an old database for this PDF, if present
+        shutil.rmtree(
+            db_path,
+            ignore_errors=True
+        )
+
         vectorstore = Chroma.from_documents(
             documents=chunks,
             embedding=embedding_model,
             persist_directory=str(db_path)
         )
 
-        # Verify database contents
+        # ----------------------------------------------------
+        # 4. VERIFY DATABASE
+        # ----------------------------------------------------
+
         stored_count = vectorstore._collection.count()
 
         st.write(
@@ -229,7 +237,7 @@ def create_database(uploaded_file):
 
         if stored_count == 0:
             raise ValueError(
-                "ChromaDB was created but contains zero documents."
+                "ChromaDB contains zero documents."
             )
 
         return vectorstore
@@ -240,7 +248,9 @@ def create_database(uploaded_file):
             os.remove(temp_path)
 
 
-# ---------------- SIDEBAR: PDF UPLOAD ----------------
+# ============================================================
+# SIDEBAR: PDF UPLOAD
+# ============================================================
 
 with st.sidebar:
 
@@ -257,12 +267,15 @@ with st.sidebar:
             f"Selected: {uploaded_file.name}"
         )
 
-        if st.button("Process PDF", type="primary"):
+        if st.button(
+            "Process PDF",
+            type="primary"
+        ):
 
             try:
 
                 with st.spinner(
-                    "Extracting PDF, creating chunks and embeddings..."
+                    "Loading PDF, creating chunks and embeddings..."
                 ):
 
                     vectorstore = create_database(
@@ -278,7 +291,7 @@ with st.sidebar:
                         }
                     )
 
-                    # Save active document information
+                    # Save active database and retriever
                     st.session_state.vectorstore = vectorstore
                     st.session_state.retriever = retriever
 
@@ -292,29 +305,38 @@ with st.sidebar:
                         ).hexdigest()
                     )
 
+                    # Reset previous conversation
                     st.session_state.messages = []
 
-                st.success("PDF processed successfully!")
+                st.success(
+                    "PDF processed successfully!"
+                )
 
             except Exception as e:
+
+                st.session_state.retriever = None
+                st.session_state.vectorstore = None
+                st.session_state.processed_pdf = None
+                st.session_state.processed_hash = None
 
                 st.error(
                     f"Could not process PDF: {e}"
                 )
 
-                st.session_state.retriever = None
-                st.session_state.vectorstore = None
-
+    # Active document status
     if st.session_state.processed_pdf:
 
         st.divider()
 
         st.success(
-            f"Active document: {st.session_state.processed_pdf}"
+            f"Active document: "
+            f"{st.session_state.processed_pdf}"
         )
 
 
-# ---------------- CHECK SELECTED DOCUMENT ----------------
+# ============================================================
+# DOCUMENT VALIDATION
+# ============================================================
 
 current_hash = (
     hashlib.sha256(
@@ -337,15 +359,18 @@ if (
 elif st.session_state.retriever is None:
 
     st.info(
-        "👈 Upload a PDF and click **Process PDF** to start chatting."
+        "👈 Upload a PDF and click **Process PDF** "
+        "to start chatting."
     )
 
 
-# ---------------- CHAT INTERFACE ----------------
+# ============================================================
+# CHAT INTERFACE
+# ============================================================
 
 else:
 
-    # Display previous conversation
+    # Display conversation history
     for message in st.session_state.messages:
 
         with st.chat_message(message["role"]):
@@ -367,13 +392,18 @@ else:
 
         with st.chat_message("assistant"):
 
-            with st.spinner("Searching your document..."):
+            with st.spinner(
+                "Searching your document..."
+            ):
 
                 try:
 
+                    # ------------------------------------------------
+                    # 1. RETRIEVE DOCUMENTS
+                    # ------------------------------------------------
+
                     retriever = st.session_state.retriever
 
-                    # Retrieve relevant chunks
                     docs = retriever.invoke(query)
 
                     st.write(
@@ -381,19 +411,31 @@ else:
                         len(docs)
                     )
 
-                    # Combine retrieved text
+                    # ------------------------------------------------
+                    # 2. BUILD CONTEXT
+                    # ------------------------------------------------
+
                     context = "\n\n".join(
                         doc.page_content
                         for doc in docs
                     )
 
-                    # Debug retrieved context
+                    # Debug information
                     with st.expander(
                         "DEBUG: Retrieved context"
                     ):
-                        st.write(context if context else "EMPTY CONTEXT")
 
-                    # Stop if no documents were retrieved
+                        if context.strip():
+                            st.write(context)
+                        else:
+                            st.warning(
+                                "No context was retrieved."
+                            )
+
+                    # ------------------------------------------------
+                    # 3. GENERATE ANSWER
+                    # ------------------------------------------------
+
                     if not docs or not context.strip():
 
                         answer = (
@@ -405,20 +447,23 @@ else:
 
                     else:
 
-                        # Generate final prompt
                         final_prompt = prompt.invoke({
                             "context": context,
                             "question": query
                         })
 
-                        # Generate answer using Groq
-                        response = llm.invoke(final_prompt)
+                        response = llm.invoke(
+                            final_prompt
+                        )
 
                         answer = response.content
 
                         st.markdown(answer)
 
-                    # Display retrieved source pages
+                    # ------------------------------------------------
+                    # 4. DISPLAY SOURCES
+                    # ------------------------------------------------
+
                     with st.expander(
                         "View retrieved sources"
                     ):
@@ -430,6 +475,7 @@ else:
                                 page = doc.metadata.get("page")
 
                                 if page is not None:
+
                                     st.caption(
                                         f"Page {page + 1}"
                                     )
@@ -439,8 +485,12 @@ else:
                                 )
 
                         else:
-                            st.write("No sources retrieved.")
 
+                            st.write(
+                                "No sources retrieved."
+                            )
+
+                    # Save assistant response
                     st.session_state.messages.append({
                         "role": "assistant",
                         "content": answer
