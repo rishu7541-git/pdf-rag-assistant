@@ -245,22 +245,35 @@ else:
             with st.spinner("Searching your document..."):
                 try:
                     retriever = st.session_state.retriever
+
+                    # Retrieve relevant chunks
                     docs = retriever.invoke(query)
 
+                    # Combine retrieved text
                     context = "\n\n".join(
                         doc.page_content for doc in docs
                     )
 
+                     # Temporary debugging
+                    st.write("Retrieved chunks:", len(docs))
+
+                    with st.expander("DEBUG: Retrieved context"):
+                       st.write(context)
+
+                    # Generate final prompt
                     final_prompt = prompt.invoke({
                         "context": context,
                         "question": query
                     })
 
+                    # Generate answer using Groq
                     response = llm.invoke(final_prompt)
                     answer = response.content
 
                     st.markdown(answer)
+        
 
+                    
                     # Optional: show source page numbers
                     with st.expander("View retrieved sources"):
                         for doc in docs:
