@@ -30,16 +30,38 @@ st.caption("Upload a PDF and ask questions about its content.")
 @st.cache_resource
 def get_embedding_model():
     return HuggingFaceEmbeddings(
-        model_name="sentence-transformers/all-MiniLM-L6-v2"
+        model_name="sentence-transformers/all-MiniLM-L6-v2",
+        model_kwargs={"device": "cpu"}
     )
+
 
 
 @st.cache_resource
 def get_llm():
+
+    # First, check the local .env file
+    groq_api_key = os.getenv("GROQ_API_KEY")
+
+    # If not found, check Streamlit Cloud Secrets
+    if not groq_api_key:
+        try:
+            groq_api_key = st.secrets["GROQ_API_KEY"]
+        except Exception:
+            groq_api_key = None
+
+    # Check whether the API key exists
+    if not groq_api_key:
+        raise ValueError(
+            "GROQ_API_KEY not found. "
+            "Please configure it in .env or Streamlit Secrets."
+        )
+
     return ChatGroq(
+        api_key=groq_api_key,
         model="openai/gpt-oss-120b",
         temperature=0
     )
+
 
 
 embedding_model = get_embedding_model()
